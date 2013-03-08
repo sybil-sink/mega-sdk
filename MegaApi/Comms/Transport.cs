@@ -14,7 +14,7 @@ namespace MegaApi.Comms
     public class Transport
     {
         static string ClientServerUrl = "https://g.api.mega.co.nz/cs";
-        public MegaUser Auth {get; set;}
+        public MegaUser Auth { get; set; }
         PollingTransport polling;
         List<string> tracking = new List<string>();
         object pollingLock = new object();
@@ -36,14 +36,14 @@ namespace MegaApi.Comms
         }
         private void ProcessAgain(bool incrRetries = true)
         {
-            if (incrRetries) { requests.Peek().retries++; }
+            if (incrRetries && requests.Count > 0) { requests.Peek().retries++; }
             ProcessRequest();
         }
-        private void ProcessNext() 
+        private void ProcessNext()
         {
             if (requests.Count < 1) { return; }
-            requests.Dequeue(); 
-            ProcessRequest(); 
+            requests.Dequeue();
+            ProcessRequest();
         }
         private void ProcessError(MegaRequest req, int errno)
         {
@@ -160,7 +160,7 @@ namespace MegaApi.Comms
 
         private string GetData(MegaRequest req)
         {
-            var t = JsonConvert.SerializeObject(req, 
+            var t = JsonConvert.SerializeObject(req,
                 new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore, Converters = req.Converters });
             return string.Format("[{0}]", t);
         }
@@ -202,7 +202,7 @@ namespace MegaApi.Comms
             }
         }
 
-        
+
     }
-    
+
 }

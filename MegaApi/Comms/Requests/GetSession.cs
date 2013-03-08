@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Runtime.Serialization;
 using Newtonsoft.Json;
-using System.Numerics;
+using Mono.Math;
 using MegaApi.Comms.Converters;
 using Newtonsoft.Json.Linq;
 using MegaApi.DataTypes;
@@ -44,13 +44,15 @@ namespace MegaApi.Comms.Requests
                 PrivateKey = helper.val;
                 if (PrivateKey == null) { return; }
                 
-                var sid = BigInteger.ModPow(csid, PrivateKey.D, PrivateKey.N);
+                var sid = csid.ModPow(PrivateKey.D, PrivateKey.N);
+                // val, exp, mod
+                //var sid = BigInteger.ModPow(csid, PrivateKey.D, PrivateKey.N);
 
-                var reversedBytes = sid.ToByteArray();
+                var reversedBytes = sid.GetBytes();
                 var shift = reversedBytes[reversedBytes.Length - 1] == 0 ? 1 : 0;
                 SessionId = Transport.Encode(reversedBytes
-                                                    .Reverse()
-                                                    .Skip(shift)
+                             //                       .Reverse()
+                               //                     .Skip(shift)
                                                     .Take(43)
                                                     .ToArray());
                 

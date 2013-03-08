@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Security.Cryptography;
-using System.Numerics;
+using Mono.Math;
 using System.IO;
 using MegaApi.Utility;
 

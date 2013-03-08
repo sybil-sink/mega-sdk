@@ -1,4 +1,4 @@
-﻿using System.Numerics;
+﻿using Mono.Math;
 namespace MegaApi.DataTypes
 {
     // used by SessionConverter

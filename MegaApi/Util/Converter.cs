@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using System.Numerics;
+using Mono.Math;
 using MegaApi.Utility;
 
 namespace MegaApi
@@ -62,14 +62,14 @@ namespace MegaApi
         {
             var bytesCount = mpi.Length - 2;
             var shift = 0;
-            if ((mpi[2] & 0x80) > 0)
-            {
-                bytesCount++;
-                shift++;
-            }
+            //if ((mpi[2] & 0x80) > 0)
+            //{
+            //    bytesCount++;
+            //    shift++;
+            //}
             var init = new byte[bytesCount];
             Array.Copy(mpi, 2, init, shift, mpi.Length - 2);
-            init = init.Reverse().ToArray();
+            //init = init.Reverse().ToArray();
             return new BigInteger(init);
         }
 
@@ -78,23 +78,23 @@ namespace MegaApi
         {
             var bytesCount = count - 2;
             var shift = 0;
-            if ((src[offset+2] & 0x80) > 0)
-            {
-                // make the number positive
-                bytesCount++;
-                shift++;
-            }
+            //if ((src[offset+2] & 0x80) > 0)
+            //{
+            //    // make the number positive
+            //    bytesCount++;
+            //    shift++;
+            //}
 
             var init = new byte[bytesCount];
             Array.Copy(src, offset + 2, init, shift, count - 2);
-            init = init.Reverse().ToArray();
+            //init = init.Reverse().ToArray();
             return new BigInteger(init);
         }
 
         public static byte[] BigIntToMpi(BigInteger bint)
         {
-            var ibytes = bint.ToByteArray().Reverse().ToArray();
-            var shift = ibytes[0] == 0 ? 1 : 0;
+            var ibytes = bint.GetBytes();//.Reverse().ToArray();
+            var shift = 0;// ibytes[0] == 0 ? 1 : 0;
             var length = ibytes.Length - shift;
             var bytes = new byte[length + 2];
             ushort ulength = Convert.ToUInt16(length * 8);

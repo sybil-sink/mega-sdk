@@ -5,7 +5,7 @@ using System.Text;
 using System.Security.Cryptography;
 using System.IO;
 using System.Net;
-using System.Numerics;
+using Mono.Math;
 using System.Threading;
 using MegaApi.Comms;
 using MegaApi.Comms.Requests;

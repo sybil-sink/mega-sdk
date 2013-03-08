@@ -6,7 +6,7 @@ using MegaApi.DataTypes;
 using System.Security.Cryptography;
 using MegaApi.Cryptography;
 using Newtonsoft.Json;
-using System.Numerics;
+using Mono.Math;
 
 namespace MegaApi.Comms.Converters
 {
