@@ -1,0 +1,98 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{E38721B9-BDB2-4BA8-BCB8-35821267BE59}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <RootNamespace>MegaApi</RootNamespace>
+    <AssemblyName>MegaApi</AssemblyName>
+    <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
+    <FileAlignment>512</FileAlignment>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>..\Newtonsoft.Json.dll</HintPath>
+    </Reference>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Numerics" />
+    <Reference Include="System.Runtime.Serialization" />
+    <Reference Include="System.Security" />
+    <Reference Include="System.Xml.Linq" />
+    <Reference Include="System.Data.DataSetExtensions" />
+    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Xml" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="Comms\Converters\BigIntegerConverter.cs" />
+    <Compile Include="Comms\Converters\ByteConverter.cs" />
+    <Compile Include="Comms\Converters\MCryptoConverter.cs" />
+    <Compile Include="Comms\Converters\NodeKeyConverter.cs" />
+    <Compile Include="Comms\Converters\PrivateKeyConverter.cs" />
+    <Compile Include="Comms\Converters\ServerCommandConverter.cs" />
+    <Compile Include="Comms\Converters\SessionConverter.cs" />
+    <Compile Include="Comms\Converters\StringConverter.cs" />
+    <Compile Include="Comms\Converters\TimeConverter.cs" />
+    <Compile Include="Comms\PollingTransport.cs" />
+    <Compile Include="Comms\Transfers\TransferController.cs" />
+    <Compile Include="Comms\Transport.cs" />
+    <Compile Include="Comms\Requests\CompleteUpload.cs" />
+    <Compile Include="Comms\Requests\CreateAnon.cs" />
+    <Compile Include="Comms\Requests\CreateFolder.cs" />
+    <Compile Include="Comms\Requests\GetDownloadUrl.cs" />
+    <Compile Include="Comms\Requests\GetFiles.cs" />
+    <Compile Include="Comms\Requests\GetSession.cs" />
+    <Compile Include="Comms\Requests\GetUploadUrl.cs" />
+    <Compile Include="Comms\Requests\GetUser.cs" />
+    <Compile Include="Comms\Requests\MoveNode.cs" />
+    <Compile Include="Comms\Requests\MegaRequest.cs" />
+    <Compile Include="Comms\Requests\RemoveNode.cs" />
+    <Compile Include="Comms\Requests\ServerCommand.cs" />
+    <Compile Include="Comms\Requests\UpdateAttributes.cs" />
+    <Compile Include="Comms\Transfers\TransferHandle.cs" />
+    <Compile Include="Crypto\Crypto.cs" />
+    <Compile Include="DataTypes\Chunk.cs" />
+    <Compile Include="DataTypes\MCrypto.cs" />
+    <Compile Include="DataTypes\Node.cs" />
+    <Compile Include="DataTypes\NodeAttributes.cs" />
+    <Compile Include="DataTypes\NodeKey.cs" />
+    <Compile Include="DataTypes\User.cs" />
+    <Compile Include="Errors.cs" />
+    <Compile Include="Mega.cs" />
+    <Compile Include="Comms\Transfers\MegaDownloader.cs" />
+    <Compile Include="Comms\Transfers\MegaUploader.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Util\Converter.cs" />
+    <Compile Include="Util\UnixTime.cs" />
+    <Compile Include="Util\Util.cs" />
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
+       Other similar extension points exist, see Microsoft.Common.targets.
+  <Target Name="BeforeBuild">
+  </Target>
+  <Target Name="AfterBuild">
+  </Target>
+  -->
+</Project>
