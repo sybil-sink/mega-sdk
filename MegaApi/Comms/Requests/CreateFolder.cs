@@ -16,7 +16,7 @@ namespace MegaApi.Comms.Requests
         [JsonProperty("f")]
         public List<MegaNode> Created { get; set; }
     }
-    public class MRequestCreateFolder<T> : TrackingRequest<T> where T : MResponseCreateFolder
+    internal class MRequestCreateFolder<T> : TrackingRequest<T> where T : MResponseCreateFolder
     {
         [DataMember]
         public string a = "p";

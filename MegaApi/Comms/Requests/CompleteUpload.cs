@@ -15,7 +15,7 @@ namespace MegaApi.Comms.Requests
         public List<MegaNode> NewNode { get; set; }
     }
 
-    public class MRequestCompleteUpload<T> : TrackingRequest<T> where T : MegaResponse
+    internal class MRequestCompleteUpload<T> : TrackingRequest<T> where T : MegaResponse
     {
         [DataMember]
         public string a = "p";

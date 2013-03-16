@@ -29,6 +29,7 @@ namespace MegaApi.Comms.Transfers
             this.maxConnections = maxConnections;
             this.maxThreads = maxThreads;
         }
+        public abstract void StartTransfer(TransferHandle handle);
 
         protected void EnqueueCrypt(List<MegaChunk> chunks)
         {
@@ -61,7 +62,6 @@ namespace MegaApi.Comms.Transfers
             });
         }
         protected abstract void CryptChunk(MegaChunk chunk);
-
         protected void EnqueueTransfer(List<MegaChunk> chunks, bool firstPriority = false)
         {
             lock (transferQueue)
@@ -84,12 +84,15 @@ namespace MegaApi.Comms.Transfers
             
             shedule.ForEach((chunk) =>
             {
-                connectionsCount++;
-                TransferChunk(chunk, () =>
-                    {
-                        connectionsCount--;
-                        TransferNext();
-                    });
+                ThreadPool.QueueUserWorkItem((a) =>
+                {
+                    connectionsCount++;
+                    TransferChunk(chunk, () =>
+                        {
+                            connectionsCount--;
+                            TransferNext();
+                        });
+                });
             });
                 
             
@@ -99,7 +102,7 @@ namespace MegaApi.Comms.Transfers
         {
             var delta = bytes - chunk.transferredBytes;
             chunk.transferredBytes = bytes;
-            chunk.Handle.OnTransferredBytes(delta);
+            chunk.Handle.BytesTransferred(delta);
         }
     }
 }

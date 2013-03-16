@@ -60,7 +60,7 @@ namespace MegaApi.Comms.Requests
         }
 
     }
-    public class MRequestGetSid<T> : MegaRequest<T> where T : MegaResponse
+    internal class MRequestGetSid<T> : MegaRequest<T> where T : MegaResponse
     {
         [DataMember]
         public string a = "us";

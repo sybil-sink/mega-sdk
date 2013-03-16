@@ -68,9 +68,10 @@ namespace MegaApi.Utility
             return modifiable;
         }
 
-        public static Thread StartThread(Action action)
+        public static Thread StartThread(Action action, string name)
         {
             var t = new Thread(new ThreadStart(action));
+            t.Name = name;
             t.SetApartmentState(ApartmentState.STA);
             t.Start();
             return t;

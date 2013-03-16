@@ -16,7 +16,7 @@ namespace MegaApi.Comms
         public List<ServerCommand> commands { get; set; }
     }
 
-    public class PollingTransport
+    internal class PollingTransport
     {
         static string ServerClientUrl = "https://g.api.mega.co.nz/sc";
         public event EventHandler<ServerRequestArgs> ServerCommand;
@@ -30,25 +30,13 @@ namespace MegaApi.Comms
         {
             ScWc.CancelAsync();
         }
-        public void StartPoll(MegaRequest cause, string handle, int timeout = 0)
+        public void StartPoll(MegaRequest cause, string handle)
         {
-            if (timeout > 0)
-            {
-                Timer t = new Timer
-                {
-                    AutoReset = false,
-                    Interval = timeout
-                };
-                t.Elapsed += (s, e) => StartPoll(cause, handle);
-                t.Start();
-                return;
-            }
-
             ScWc = new WebClient();
             ScWc.DownloadStringCompleted += (s, e) =>
             {
                 if (e.Cancelled) { return; }
-                if (e.Error != null) { StartPoll(cause, handle, 3000); return; }
+                if (e.Error != null) { StartPoll(cause, handle); return; }
                 try
                 {
                     var response = String.Format("{{root:{0}}}", e.Result);
@@ -60,31 +48,33 @@ namespace MegaApi.Comms
                     }
                     else if (r["a"] != null)
                     {
-                        StartPoll(cause, r["sn"].ToString());
                         if (ServerCommand != null)
                         {
-                            var str = r["a"].ToString();
-                            var cmds = JsonConvert.DeserializeObject<List<ServerCommand>>(str, new ServerCommandConverter(user));
-
-                            foreach (var cmd in cmds)
+                            Utility.Util.StartThread(() =>
                             {
-                                if (cmd.CommandId != null)
+                                var str = r["a"].ToString();
+                                var cmds = JsonConvert.DeserializeObject<List<ServerCommand>>(str, new ServerCommandConverter(user));
+
+                                foreach (var cmd in cmds)
                                 {
-                                    var track = tracking.Where(t => t == cmd.CommandId).FirstOrDefault();
-                                    if (track != null)
+                                    if (cmd.CommandId != null)
                                     {
-                                        tracking.Remove(track);
-                                        cmd.IsMine = true;
+                                        var track = tracking.Where(t => t == cmd.CommandId).FirstOrDefault();
+                                        if (track != null)
+                                        {
+                                            tracking.Remove(track);
+                                            cmd.IsMine = true;
+                                        }
                                     }
                                 }
-                            }
 
-                            ServerCommand(this, new ServerRequestArgs 
-                            {
-                                commands = cmds
-                            });
+                                ServerCommand(this, new ServerRequestArgs
+                                {
+                                    commands = cmds
+                                });
+                            }, "server_request_handling");
                         }
-
+                        StartPoll(cause, r["sn"].ToString());
                     }
                 }
                 catch { StartPoll(cause, handle); }
@@ -95,7 +85,7 @@ namespace MegaApi.Comms
             try { ScWc.DownloadStringAsync(BuildScUri(cause, handle)); }
             catch (System.Net.WebException)
             {
-                StartPoll(cause, handle, 3000);
+                StartPoll(cause, handle);
             }
 
         }
@@ -120,13 +110,7 @@ namespace MegaApi.Comms
             try { ScWc.DownloadStringAsync(new Uri(waitUrl)); }
             catch (WebException) 
             {
-                Timer t = new Timer
-                {
-                    AutoReset = false,
-                    Interval = 3000
-                };
-                t.Elapsed += (s, e) => StartWait(cause, handle, waitUrl);
-                t.Start();
+                StartWait(cause, handle, waitUrl);
             }
 
         }

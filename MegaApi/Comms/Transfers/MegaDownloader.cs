@@ -15,27 +15,56 @@ namespace MegaApi.Comms.Transfers
 {
     class MegaDownloader : TransferController
     {
-
-
+        private object streamLock = new object();
         public MegaDownloader(Transport transport, string tempFolder = null, int maxConnections = 4, int maxThreads = 4)
             : base(transport, tempFolder, maxConnections, maxThreads) { }
-       
-        
 
+        public static DownloadHandle GetHandle(string filename, long filesize, string downloadUrl, MegaNode node, string tempPath = null)
+        {
+            var handle = new DownloadHandle(filename, filesize, tempPath);
+            handle.DownloadUrl = downloadUrl;
+            handle.Node = node;
+            return handle;
+        }
+
+        public override void StartTransfer(TransferHandle hndl)
+        {
+            DownloadHandle handle = null;
+            try { handle = (DownloadHandle)hndl; }
+            catch (InvalidCastException)
+            {
+                throw new ArgumentException("Only DownloadHandle is supported");
+            }
+            byte[] dlKey = new byte[handle.Node.NodeKey.DecryptedKey.Length];
+            Array.Copy(handle.Node.NodeKey.DecryptedKey, dlKey, dlKey.Length);
+            if (dlKey.Length > 16) { dlKey.XorWith(0, dlKey, 16, 16); }
+            var aesKey = new byte[16];
+            Array.Copy(dlKey, aesKey, 16);
+            handle.AesAlg = Crypto.CreateAes(aesKey);
+
+            handle.Nonce = new byte[8];
+            Array.Copy(dlKey, 16, handle.Nonce, 0, 8);
+
+            handle.MacCheck = new byte[8];
+            Array.Copy(dlKey, 24, handle.MacCheck, 0, 8);
+
+            EnqueueTransfer(handle.Chunks);
+        }
         protected override void TransferChunk(MegaChunk chunk, Action transferCompleteFn)
         {
             if (chunk.Handle.SkipChunks) { transferCompleteFn(); return; }
             var wc = new WebClient();
             wc.Proxy = transport.Proxy;
-            chunk.Handle.OnStartedTransfer(wc);
+            chunk.Handle.ChunkTransferStarted(wc);
             wc.DownloadDataCompleted += (s, e) =>
             {
                 transferCompleteFn();
-                chunk.Handle.OnEndedTransfer(wc);
+                chunk.Handle.ChunkTransferEnded(wc);
                 if (e.Cancelled) { return; }
                 if (e.Error != null)
                 {
-                    chunk.Handle.OnTransferredBytes(0 - chunk.transferredBytes);
+                    chunk.Handle.BytesTransferred(0 - chunk.transferredBytes);
+                    chunk.transferredBytes = 0;
                     EnqueueTransfer(new List<MegaChunk> { chunk }, true);
                 }
                 else 
@@ -50,14 +79,33 @@ namespace MegaApi.Comms.Transfers
             wc.DownloadDataAsync(new Uri(url));
 
         }
-
         protected void OnDownloadedBytes(MegaChunk chunk, long bytes)
         {
             var delta = bytes - chunk.transferredBytes;
             chunk.transferredBytes = bytes;
-            chunk.Handle.OnTransferredBytes(delta);
-        }
+            chunk.Handle.BytesTransferred(delta);
+        } 
+        protected override void CryptChunk(MegaChunk chunk)
+        {
+            var data = chunk.Data;
+            var hndl = chunk.Handle;
+            chunk.Mac = Crypto.DecryptCtr(chunk.Handle.AesAlg, data, chunk.Handle.Nonce, chunk.Offset);
+            lock(streamLock)
+            {
+                hndl.Stream.Seek(chunk.Offset, SeekOrigin.Begin);
+                hndl.Stream.Write(data, 0, chunk.Size);
+            }
+            hndl.chunksProcessed++;
+            chunk.ClearData();
 
+            if (chunk.Handle.chunksProcessed == chunk.Handle.Chunks.Count)
+            {
+                Util.StartThread(() =>
+                {
+                    FinishFile((DownloadHandle)chunk.Handle);
+                }, "transfer_finish_file");
+            }
+        }
         private void FinishFile(DownloadHandle handle)
         {
             if (handle.Status == TransferHandleStatus.Cancelled) { return; }
@@ -76,53 +124,16 @@ namespace MegaApi.Comms.Transfers
             Array.Copy(handle.Mac, 8, check, 4, 4);
 
             var ok = check.SequenceEqual(handle.MacCheck);
-            if (ok) 
+            if (ok)
             {
-                File.Move(handle.TempFile, handle.LocalFilename);
-                handle.Status = TransferHandleStatus.Success;
+                if (handle.TargetPath != null)
+                {
+                    if (File.Exists(handle.TargetPath)) { File.Delete(handle.TargetPath); }
+                    File.Move(handle.TempFile, handle.TargetPath);
+                }
+                handle.EndTransfer(null);
             }
-            else { handle.Error = MegaApiError.EKEY; handle.Status = TransferHandleStatus.Error; }
-        }
-
-
-        public DownloadHandle DownloadFile(string filename, long filesize, string downloadUrl, MegaNode node, string tempPath = null)
-        {
-            var handle = new DownloadHandle(filename, filesize, tempPath);
-            handle.DownloadUrl = downloadUrl;
-            handle.Node = node;
-
-            byte[] dlKey = new byte[handle.Node.NodeKey.DecryptedKey.Length];
-            Array.Copy(handle.Node.NodeKey.DecryptedKey, dlKey, dlKey.Length);
-            if (dlKey.Length > 16) { dlKey.XorWith(0, dlKey, 16, 16); }
-            var aesKey = new byte[16];
-            Array.Copy(dlKey, aesKey, 16);
-            handle.AesAlg = Crypto.CreateAes(aesKey);
-
-            handle.Nonce = new byte[8];
-            Array.Copy(dlKey, 16, handle.Nonce, 0, 8);
-
-            handle.MacCheck = new byte[8];
-            Array.Copy(dlKey, 24, handle.MacCheck, 0, 8);
-
-            EnqueueTransfer(handle.Chunks);
-
-            return handle;
-        }
-
-        protected override void CryptChunk(MegaChunk chunk)
-        {
-            var data = chunk.Data;
-            var hndl = chunk.Handle;
-            chunk.Mac = Crypto.DecryptCtr(chunk.Handle.AesAlg, data, chunk.Handle.Nonce, chunk.Offset);
-            hndl.Stream.Seek(chunk.Offset, SeekOrigin.Begin);
-            hndl.Stream.Write(data, 0, chunk.Size);
-            hndl.chunksProcessed++;
-            chunk.ClearData();
-
-            if (chunk.Handle.chunksProcessed == chunk.Handle.Chunks.Count)
-            {
-                FinishFile((DownloadHandle)chunk.Handle);
-            }
+            else { handle.EndTransfer(MegaApiError.EKEY); }
         }
 
         

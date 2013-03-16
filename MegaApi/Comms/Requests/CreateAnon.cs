@@ -14,7 +14,7 @@ namespace MegaApi.Comms.Requests
         public string UserId { get; set; }
     }
 
-    public class MRequestCreateAnon<T> : MegaRequest<T> where T : MegaResponse
+    internal class MRequestCreateAnon<T> : MegaRequest<T> where T : MegaResponse
     {
         [DataMember]
         public string a = "up";

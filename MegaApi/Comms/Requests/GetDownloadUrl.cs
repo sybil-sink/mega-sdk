@@ -18,7 +18,7 @@ namespace MegaApi.Comms.Requests
         public string Attributes { get; set; }
     }
 
-    public class MRequestGetDownloadUrl<T> : MegaRequest<T> where T : MegaResponse
+    internal class MRequestGetDownloadUrl<T> : MegaRequest<T> where T : MegaResponse
     {
         [DataMember]
         public string a = "g";

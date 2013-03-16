@@ -18,7 +18,7 @@ namespace MegaApi.Comms.Requests
         public int Error { get; set; }
     }
     [DataContract]
-    public abstract class MegaRequest
+    internal abstract class MegaRequest : IMegaRequest
     {
         public ManualResetEvent ResetEvent { get; set; }
         public virtual bool IsTrackig { get; set; }
@@ -33,11 +33,21 @@ namespace MegaApi.Comms.Requests
 
         public void HandleError(int errno)
         {
-            if (Error != null) { Error(this, new MegaResponseError { Error = errno }); }
-            ResetEvent.Set();
+            if (Error != null)
+            {
+                Util.StartThread(() => 
+                {
+                    Error(this, new MegaResponseError { Error = errno });
+                    ResetEvent.Set();
+                }, "request_error_handler");
+            }
+            else
+            {
+                ResetEvent.Set();
+            }
         }
     }
-    public abstract class MegaRequest<T> : MegaRequest where T : MegaResponse
+    internal abstract class MegaRequest<T> : MegaRequest where T : MegaResponse
     {
         public event EventHandler<T> Success;
 
@@ -45,9 +55,16 @@ namespace MegaApi.Comms.Requests
         {
             if (Success != null)
             {
-                Success(this, args);
+                Util.StartThread(() => 
+                { 
+                    Success(this, args);
+                    ResetEvent.Set();
+                }, "request_success_handler");
             }
-            ResetEvent.Set();
+            else
+            {
+                ResetEvent.Set();
+            }
         }
         public override void HandleSuccess(JToken response)
         {
@@ -71,7 +88,7 @@ namespace MegaApi.Comms.Requests
         string TrackingId { get; set; }
     }
 
-    public abstract class TrackingRequest<T> : MegaRequest<T>, ITrackingRequest where T : MegaResponse
+    internal abstract class TrackingRequest<T> : MegaRequest<T>, ITrackingRequest where T : MegaResponse
     {
         public override bool IsTrackig { get; set; }
         [DataMember]
@@ -85,6 +102,22 @@ namespace MegaApi.Comms.Requests
         }
     }
     
+    /// <summary>
+    /// Exposing from api functions to the end users 
+    /// </summary>
+    public interface IMegaRequest
+    {
+        ManualResetEvent ResetEvent { get; }
+    }
+
+    /// <summary>
+    /// The dummy request for returning in the case of error for sync-way compatibility
+    /// </summary>
+    internal class EmptyRequest : IMegaRequest
+    {
+        public ManualResetEvent ResetEvent { get; private set; }
+        public EmptyRequest() { ResetEvent = new ManualResetEvent(true); }
+    }
 
 
 }

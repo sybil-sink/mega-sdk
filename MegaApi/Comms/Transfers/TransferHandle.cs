@@ -9,6 +9,7 @@ using System.ComponentModel;
 using System.Net;
 using System.Diagnostics;
 using MegaApi.Utility;
+using System.Threading;
 
 namespace MegaApi
 {
@@ -22,78 +23,136 @@ namespace MegaApi
         Cancelled,
         Paused
     }
+    public class TransferEndedArgs : EventArgs
+    {
+        public int? Error { get; set; }
+    }
+
     public abstract class TransferHandle : INotifyPropertyChanged
     {
-        public Stream Stream;
-        public event EventHandler StatusChanged;
-        TransferHandleStatus _status;
+        public event EventHandler<TransferEndedArgs> TransferEnded;
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        public MegaNode Node { get; internal set; }
+        public int? Error { get; private set; }
         public TransferHandleStatus Status 
         {
             get { return _status; } 
-            set
+            protected set
             {
                 _status = value;
-                NotifyPropertyChanged();
-                if (StatusChanged != null) { StatusChanged(this, null); } 
+                if (value == TransferHandleStatus.Success || value == TransferHandleStatus.Error)
+                {
+                    Progress = 100;
+                }
+                OnPropertyChanged("Status");
             }
         }
-        string tempPath;
-        public string LocalFilename;
-        public SymmetricAlgorithm AesAlg;
-        public byte[] Mac;
-        public List<MegaChunk> Chunks = new List<MegaChunk>();
-        public int chunksProcessed = 0;
-        public byte[] Nonce;
-        public long Size;
-        long processedBytes = 0;
-        List<WebClient> runningConnections = new List<WebClient>();
-        //Stopwatch timer = new Stopwatch();
-        //long timerBytes = 0;
-        //const int timerInterval = 500;
-
-        public MegaNode Node { get; set; }
-        public int? Error { get; set; }
-
-        double _progress;
         public double Progress
         {
             get { return _progress; }
-            set
+            private set
             {
                 _progress = value;
-                NotifyPropertyChanged();
+                OnPropertyChanged("Progress");
             }
         }
-
-        double? _speed;
         public double? Speed
         {
             get { return _speed; }
-            set
+            private set
             {
                 _speed = value;
-                NotifyPropertyChanged();
+                OnPropertyChanged("Speed");
             }
         }
+
+        internal bool SkipChunks
+        {
+            get
+            {
+                return Status == TransferHandleStatus.Cancelled || Status == TransferHandleStatus.Paused;
+            }
+        }
+        internal string Name;
+        internal Stream Stream;
+        internal SymmetricAlgorithm AesAlg;
+        internal byte[] Mac;
+        internal List<MegaChunk> Chunks = new List<MegaChunk>();
+        internal volatile int chunksProcessed = 0;
+        internal byte[] Nonce;
+        internal long Size;
         
-        public TransferHandle(string filename, long size, string tempPath)
+        TransferHandleStatus _status;
+        string tempPath;
+        long processedBytes = 0;
+        List<WebClient> runningConnections = new List<WebClient>();
+        double _progress;
+        double? _speed;
+        
+        // filename is without the directory path
+        internal TransferHandle(string filename, long size, string tempPath)
         {
             this.tempPath = tempPath == null ? Path.GetTempPath() : tempPath;
-            LocalFilename = filename;
+            Name = filename;
             Status = TransferHandleStatus.Pending;
             Size = size;
             PrepareChunks(size);
         }
 
-        public bool SkipChunks 
-        { 
-            get 
-            {
-                return Status == TransferHandleStatus.Cancelled || Status == TransferHandleStatus.Paused;
-            } 
+        public virtual void PauseTransfer()
+        {
+            //Util.StartThread(() =>
+            //{
+            Status = TransferHandleStatus.Paused;
+            ResetConnections();
+            Stream.Close();
+            // });
         }
+        public virtual void ResumeTransfer()
+        {
 
-        public void OnTransferredBytes(long bytes)
+        }
+        public void CancelTransfer()
+        {
+            Util.StartThread(() => CancelTransferInternal(null), "mega_api_transfer_cancel");
+        }
+        
+        internal void EndTransfer(int? error)
+        {
+            Progress = 100;
+            if (error == null)
+            {
+                Status = TransferHandleStatus.Success;
+            }
+            else
+            {
+                Status = TransferHandleStatus.Error;
+                Error = error;
+            }
+            OnTransferEnded();
+        }
+        internal void CancelTransfer(int? error)
+        {
+            CancelTransferInternal(error);
+        }
+        internal virtual void ChunkTransferStarted(WebClient wc)
+        {
+            //if (!timer.IsRunning) { timer.Start(); Speed = 0; }
+            lock (runningConnections) { runningConnections.Add(wc); }
+        }
+        internal void ChunkTransferEnded(WebClient wc)
+        {
+            lock (runningConnections) { runningConnections.Remove(wc); }
+            //if (runningConnections.Count < 1) 
+            //{ 
+            //    timer.Reset(); 
+            //    timerBytes = 0;
+            //    Progress = 100;
+            //    Speed = null;
+            //}
+        }
+        internal void BytesTransferred(long bytes)
         {
             processedBytes += bytes;
             if (processedBytes < 0) { processedBytes = 0; }
@@ -106,10 +165,22 @@ namespace MegaApi
             //    timer.Restart();
             //    timerBytes = 0;
             //}
-            
-            
+
+
         }
-        protected void PrepareChunks(long filesize)
+
+        protected virtual void CancelTransferInternal(int? error)
+        {
+            Error = error;
+            Status = TransferHandleStatus.Cancelled;
+            ResetConnections();
+            ClearChunks();
+            Stream.Close();
+            Progress = 0;
+            chunksProcessed = 0;
+            processedBytes = 0;
+        }
+        private void PrepareChunks(long filesize)
         {
             Size = filesize;
             var p = 0;
@@ -145,44 +216,6 @@ namespace MegaApi
             }
 
         }
-        private void NotifyPropertyChanged(String propertyName = "")
-        {
-            if (PropertyChanged != null)
-            {
-                PropertyChanged(this, new PropertyChangedEventArgs(propertyName));
-            }
-        }
-        public event PropertyChangedEventHandler PropertyChanged;
-
-        public virtual void PauseTransfer()
-        {
-            Util.StartThread(() =>
-            {
-                Status = TransferHandleStatus.Paused;
-                ResetConnections();
-                Stream.Close();
-            });
-        }
-        public virtual void ResumeTransfer()
-        {
-
-        }
-        public void CancelTransfer()
-        {
-            Util.StartThread(() => CancelTransferInternal());
-        }
-
-        protected virtual void CancelTransferInternal()
-        {
-            Status = TransferHandleStatus.Cancelled;
-            ResetConnections();
-            ClearChunks();
-            Stream.Close();
-            Progress = 0;
-            chunksProcessed = 0;
-            processedBytes = 0;
-        }
-
         private void ResetConnections()
         {
             lock (runningConnections) { runningConnections.ForEach((c) => c.CancelAsync()); }
@@ -194,63 +227,67 @@ namespace MegaApi
                 Chunks.ForEach((c) => c.ClearData());
             }
         }
-        public virtual void OnStartedTransfer(WebClient wc)
+        private void OnPropertyChanged(String propertyName = "")
         {
-            //if (!timer.IsRunning) { timer.Start(); Speed = 0; }
-            lock (runningConnections) { runningConnections.Add(wc); }
+            if (PropertyChanged != null)
+            {
+                ThreadPool.QueueUserWorkItem((e) =>PropertyChanged(this, new PropertyChangedEventArgs(propertyName)));
+            }
         }
-        public void OnEndedTransfer(WebClient wc)
+        private void OnTransferEnded()
         {
-            lock (runningConnections) { runningConnections.Remove(wc); }
-            //if (runningConnections.Count < 1) 
-            //{ 
-            //    timer.Reset(); 
-            //    timerBytes = 0;
-            //    Progress = 100;
-            //    Speed = null;
-            //}
+            if (TransferEnded != null)
+            {
+                // already in the end of transfer_finish_file thread
+                TransferEnded(this, new TransferEndedArgs());
+            }
         }
     }
 
     public class UploadHandle : TransferHandle
     {
-        public string UploadUrl;
-        public string UploadTargetNode;
-        public byte[] NodeKeys;
-        public byte[] UploadKey;
-        public UploadHandle(string filename, string tempPath)
-            : base(filename, new FileInfo(filename).Length, tempPath)
+        internal string UploadUrl;
+        internal string UploadTargetNode;
+        internal byte[] NodeKeys;
+        internal byte[] UploadKey;
+        internal UploadHandle(Stream stream, string name, long fileSize, string tempPath)
+            : base(name, fileSize, tempPath)
         {
-            Stream = File.Open(filename, FileMode.Open, FileAccess.Read, FileShare.Read);
+            Stream = stream;
         }
-
-        public override void OnStartedTransfer(WebClient wc)
+        internal override void ChunkTransferStarted(WebClient wc)
         {
-            base.OnStartedTransfer(wc);
+            base.ChunkTransferStarted(wc);
             Status = TransferHandleStatus.Uploading;
         }
     }
 
     public class DownloadHandle : TransferHandle
     {
-        public string DownloadUrl { get; set; }
-        public byte[] MacCheck;
-        public string TempFile { get; private set; }
-        public DownloadHandle(string filename, long filesize, string tempPath)
-            : base(filename, filesize, tempPath) 
+        internal string DownloadUrl { get; set; }
+        internal string TargetPath { get; set; }
+        internal byte[] MacCheck;
+        internal string TempFile { get; private set; }
+        internal DownloadHandle(string filename, long filesize, string tempPath)
+            : base(Path.GetFileName(filename), filesize, tempPath) 
         {
+            TargetPath = filename;
             TempFile = Path.Combine(Path.GetDirectoryName(filename), Path.GetFileNameWithoutExtension(filename) + ".mdwnl");
             Stream = File.Open(TempFile, FileMode.OpenOrCreate);
         }
-        public override void OnStartedTransfer(WebClient wc)
+        internal DownloadHandle(Stream targetStream, long filesize, string tempPath)
+            : base(null, filesize, tempPath)
         {
-            base.OnStartedTransfer(wc);
+            Stream = targetStream;
+        }
+        internal override void ChunkTransferStarted(WebClient wc)
+        {
+            base.ChunkTransferStarted(wc);
             Status = TransferHandleStatus.Downloading;
         }
-
-        protected override void CancelTransferInternal()
+        protected override void CancelTransferInternal(int? error)
         {
-            base.CancelTransferInternal();
+            base.CancelTransferInternal(error);
             File.Delete(TempFile);
         }
     }

@@ -43,7 +43,7 @@ namespace MegaApi.Comms.Requests
             if (c > 0) { UserStatus = c; }
         }
     }
-    public class MRequestGetUser<T> : MegaRequest<T> where T : MegaResponse
+    internal class MRequestGetUser<T> : MegaRequest<T> where T : MegaResponse
     {
         [DataMember]
         public string a = "ug";

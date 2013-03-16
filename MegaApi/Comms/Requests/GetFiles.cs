@@ -33,7 +33,7 @@ namespace MegaApi.Comms.Requests
     //    "ts": 1360502711
 
     }
-    public class MRequestGetFiles<T> : MegaRequest<T> where T : MegaResponse
+    internal class MRequestGetFiles<T> : MegaRequest<T> where T : MegaResponse
     {
         [DataMember]
         public string a = "f";

@@ -4,7 +4,7 @@ using System.Diagnostics;
 using System.IO;
 namespace MegaApi.DataTypes
 {
-    public class MegaChunk
+    internal class MegaChunk
     {
         public TransferHandle Handle;
         public byte[] Mac;

@@ -14,7 +14,7 @@ namespace MegaApi.Comms.Requests
         public bool Ok = true;
     }
 
-    public class MRequestRemoveNode<T> : TrackingRequest<T> where T : MResponseRemoveNode
+    internal class MRequestRemoveNode<T> : TrackingRequest<T> where T : MResponseRemoveNode
     {
         [DataMember]
         public string a = "d";

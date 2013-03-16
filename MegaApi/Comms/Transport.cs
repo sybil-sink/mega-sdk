@@ -8,10 +8,11 @@ using System.Diagnostics;
 using Newtonsoft.Json;
 using MegaApi.Comms.Requests;
 using System.Timers;
+using MegaApi.Utility;
 
 namespace MegaApi.Comms
 {
-    public class Transport
+    internal class Transport
     {
         static string ClientServerUrl = "https://g.api.mega.co.nz/cs";
         public MegaUser Auth { get; set; }
@@ -25,25 +26,33 @@ namespace MegaApi.Comms
 
         public void EnqueueRequest(MegaRequest request)
         {
-            lock (requests)
+            Util.StartThread(() =>
             {
-                requests.Enqueue(request);
-            }
-            if (requests.Count == 1)
-            {
-                Utility.Util.StartThread(() => ProcessRequest());
-            }
+                lock (requests)
+                {
+                    requests.Enqueue(request);
+                    if (requests.Count == 1)
+                    {
+                        ProcessNext();
+                    }
+                }
+            }, "mega_api_request_start");
+        
         }
-        private void ProcessAgain(bool incrRetries = true)
+        private void ProcessAgain(MegaRequest request, bool incrRetries = true)
         {
-            if (incrRetries && requests.Count > 0) { requests.Peek().retries++; }
-            ProcessRequest();
+            if (incrRetries) { request.retries++; }
+            ProcessRequest(request);
         }
         private void ProcessNext()
         {
-            if (requests.Count < 1) { return; }
-            requests.Dequeue();
-            ProcessRequest();
+            MegaRequest req = null;
+            lock (requests)
+            {
+                if (requests.Count < 1) { return; }
+                req = requests.Dequeue();
+            }
+            ProcessRequest(req);
         }
         private void ProcessError(MegaRequest req, int errno)
         {
@@ -52,24 +61,24 @@ namespace MegaApi.Comms
                 case MegaApiError.EAGAIN:
                     if (req.retries >= 30)
                     {
-                        ProcessNext();
                         req.HandleError(MegaApiError.EAPI);
+                        ProcessNext();
                         break;
                     }
                     Debug.WriteLine("Received -3, retrying");
-                    ProcessAgain();
+                    ProcessAgain(req);
                     break;
 
                 case MegaApiError.EARGS:
-                    ProcessNext();
                     req.HandleError(MegaApiError.EAPI);
+                    ProcessNext();
                     break;
 
                 case MegaApiError.ESID:
                     if (req.retries >= 3)
                     {
-                        ProcessNext();
                         req.HandleError(MegaApiError.EBROKEN);
+                        ProcessNext();
                     }
                     else
                     {
@@ -80,7 +89,7 @@ namespace MegaApi.Comms
                             sidReq.Success += (s, a) =>
                             {
                                 req.Sid = a.SessionId;
-                                ProcessAgain();
+                                ProcessAgain(req);
                             };
                             sidReq.Error += (s, a) => req.HandleError(MegaApiError.EBROKEN);
                             ProcessRequest(sidReq);
@@ -89,15 +98,13 @@ namespace MegaApi.Comms
                     break;
 
                 default:
-                    ProcessNext();
                     req.HandleError(errno);
+                    ProcessNext();
                     break;
             }
         }
-        private void ProcessRequest(MegaRequest urgentRequest = null)
+        private void ProcessRequest(MegaRequest req)
         {
-            if (urgentRequest == null && requests.Count < 1) { return; }
-            var req = urgentRequest == null ? requests.Peek() : urgentRequest;
             var wc = new WebClient();
             wc.Proxy = Proxy;
             wc.UploadStringCompleted += (s, e) =>
@@ -126,27 +133,28 @@ namespace MegaApi.Comms
                         else
                         {
                             req.HandleError(MegaApiError.EUNEXPECTED);
+                            ProcessNext();
                             return;
                         }
                         #endregion
 
-                        ProcessNext();
                         req.HandleSuccess(r[0]);
+                        ProcessNext();
                     }
                     catch (JsonException)
                     {
-                        ProcessNext();
                         req.HandleError(MegaApiError.EUNEXPECTED);
+                        ProcessNext();
                     }
                 }
-                else { ProcessAgain(); }
+                else { ProcessAgain(req); }
             };
             try
             {
                 if (req.IsTrackig) { tracking.Add(((ITrackingRequest)req).TrackingId); }
                 wc.UploadStringAsync(BuildCsUri(req), GetData(req));
             }
-            catch (WebException) { ProcessAgain(false); }
+            catch (WebException) { ProcessAgain(req, false); }
         }
 
         private Uri BuildCsUri(MegaRequest req)
@@ -185,21 +193,24 @@ namespace MegaApi.Comms
 
         internal void StartPoll(MegaRequest cause, string handle)
         {
-            lock (pollingLock)
+            Util.StartThread(() =>
             {
-                if (polling != null) { polling.Cancel(); }
-                polling = new PollingTransport(Auth);
-                polling.Proxy = Proxy;
-                polling.tracking = tracking;
-                polling.ServerCommand += (s, e) =>
+                lock (pollingLock)
                 {
-                    if (ServerRequest != null)
+                    if (polling != null) { polling.Cancel(); }
+                    polling = new PollingTransport(Auth);
+                    polling.Proxy = Proxy;
+                    polling.tracking = tracking;
+                    polling.ServerCommand += (s, e) =>
                     {
-                        ServerRequest(s, e);
-                    }
-                };
-                polling.StartPoll(cause, handle);
-            }
+                        if (ServerRequest != null)
+                        {
+                            ServerRequest(s, e);
+                        }
+                    };
+                    polling.StartPoll(cause, handle);
+                }
+            }, "polling_transport_start");
         }
 
 

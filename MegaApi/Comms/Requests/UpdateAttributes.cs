@@ -13,7 +13,7 @@ namespace MegaApi.Comms.Requests
         public bool Ok = true;
     }
 
-    public class MRequestUpdateAttributes<T> : TrackingRequest<T> where T : MResponseUpdateAttributes
+    internal class MRequestUpdateAttributes<T> : TrackingRequest<T> where T : MResponseUpdateAttributes
     {
         [DataMember]
         public string a = "a";

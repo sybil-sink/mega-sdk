@@ -11,6 +11,7 @@ using MegaApi.Comms;
 using MegaApi.Comms.Requests;
 using MegaApi.DataTypes;
 using MegaApi.Comms.Transfers;
+using MegaApi.Utility;
 
 namespace MegaApi
 {
@@ -19,51 +20,72 @@ namespace MegaApi
     /// </summary>
     public class Mega
     {
-        
-
-        MegaUser _user;
+        public event EventHandler<ServerRequestArgs> ServerRequest;
+        /// <summary>
+        /// credentials
+        /// </summary>
         public MegaUser User
         {
             get { return _user; }
-            private set 
+            private set
             {
-                uploader.User = transport.Auth = _user = value; 
+                uploader.User = transport.Auth = _user = value;
             }
         }
+        MegaUser _user;
 
         MegaDownloader downloader;
         MegaUploader uploader;
         Transport transport;
-
-        public event EventHandler<ServerRequestArgs> ServerRequest;
-        private Mega(Transport t)
+        
+        #region static initialization
+        public static void Init(MegaUser user, Action<Mega> OnSuccess, Action<int> OnError)
         {
-            transport = t;
-            transport.Proxy = WebRequest.GetSystemWebProxy();
-            transport.ServerRequest += (s, e) => { if (ServerRequest != null) { ServerRequest(s, e); } };
-            downloader = new MegaDownloader(transport);
-            uploader = new MegaUploader(transport);
+            if (OnSuccess == null || OnError == null)
+            {
+                throw new ArgumentException("Login handlers can not be empty");
+            }
+            Util.StartThread(() => ThreadInit(user, OnSuccess, OnError), "mega_api_login");
+        }
+        public Mega InitSync(MegaUser user)
+        {
+            Mega api = null;
+            int? error = null;
+            ThreadInit(user, (m) => api = m, (i) => error = i).ResetEvent.WaitOne();
+            if (api == null || error != null)
+            {
+                throw new MegaApiException((int)error, "Login error");
+            }
+            return api;
         }
 
-        
-
-        public static Mega Init(MegaUser user, Action<Mega> OnSuccess, Action<int> OnError)
+        private static IMegaRequest ThreadInit(MegaUser user, Action<Mega> OnSuccess, Action<int> OnError)
         {
             var trpt = new Transport();
             var mega = new Mega(trpt);
 
+            // mandatory anonymous registration
             if (user == null || (user.Email == null && user.Id == null))
             {
                 user = new MegaUser();
                 var req = new MRequestCreateAnon<MResponseCreateAnon>(user);
+                int? error = null;
                 req.Success += (s, args) => user.Id = args.UserId;
-                req.Error += (s, e) => { if (OnError != null) { OnError(e.Error); } };
+                req.Error += (s, e) => error = e.Error;
                 trpt.EnqueueRequest(req);
                 req.ResetEvent.WaitOne();
+                if (error != null)
+                {
+                    OnError((int)error);
+                    // just to have the ResetEvent for async compatibility
+                    return new EmptyRequest();
+                }
             }
 
+            // set the credentials
             mega.User = user;
 
+            // the login itself
             var sidRequest = new MRequestGetSid<MResponseGetSid>(mega.User);
             sidRequest.Success += (s, args) =>
             {
@@ -78,30 +100,34 @@ namespace MegaApi
                     mega.User.Id = args2.UserId;
                     OnSuccess(mega);
                 };
-                trpt.EnqueueRequest(getUserRequest);
-            };
-
-            sidRequest.Error += (s, a) => 
-            {
-                if (OnError != null)
+                getUserRequest.Error += (s2, e) =>
                 {
-                    OnError(a.Error);
-                }
+                    OnError(e.Error);
+                    sidRequest.ResetEvent.Set();
+                };
+                trpt.EnqueueRequest(getUserRequest);
+                getUserRequest.ResetEvent.WaitOne();
             };
+            sidRequest.Error += (s, a) => OnError(a.Error);
+
             trpt.EnqueueRequest(sidRequest);
-
-            return mega;
+            return sidRequest;
         }
-
-
-
+        #endregion
+        private Mega(Transport t)
+        {
+            transport = t;
+            transport.Proxy = WebRequest.GetSystemWebProxy();
+            transport.ServerRequest += (s, e) => { if (ServerRequest != null) { ServerRequest(s, e); } };
+            downloader = new MegaDownloader(transport);
+            uploader = new MegaUploader(transport);
+        }
         public void Register(string email, string password, 
             Action OnSuccess, Action<int> OnError)
         {
             throw new NotImplementedException();
         }
-
-        public MegaRequest GetNodes(Action<List<MegaNode>> OnSuccess, Action<int> OnError)
+        public IMegaRequest GetNodes(Action<List<MegaNode>> OnSuccess, Action<int> OnError)
         {
             var filesRequest = new MRequestGetFiles<MResponseGetFiles>(User);
             filesRequest.Success += (s, a) => 
@@ -113,84 +139,216 @@ namespace MegaApi
             transport.EnqueueRequest(filesRequest);
             return filesRequest;
         }
-
-        public void UploadFile(string targetNode, string filename, Action<UploadHandle> OnHandleReady, Action<int> OnError)
+        public List<MegaNode> GetNodesSync()
         {
-            var fs = new FileInfo(filename).Length;
-            var req = new MRequestGetUploadUrl<MResponseGetUploadUrl>(User, fs);
+            List<MegaNode> result = null;
+            int? error = null;
+            GetNodes((l) => result = l, (e) => error = e).ResetEvent.WaitOne();
+            if (result == null || error != null)
+            {
+                throw new MegaApiException((int)error, "Could not get the list of nodes");
+            }
+            return result;
+        }
+        public IMegaRequest UploadFile(string targetNodeId, string filename, Action<UploadHandle> OnHandleReady, Action<int> OnError)
+        {
+            Stream stream = null;
+            long fs = 0;
+            try
+            {
+                stream = File.Open(filename, FileMode.Open, FileAccess.Read, FileShare.Read);
+                fs = new FileInfo(filename).Length;
+            }
+            catch
+            {
+                if (OnError != null) { OnError(MegaApiError.ESYSTEM); }
+                return new EmptyRequest();
+            }
+            return UploadStream(targetNodeId, Path.GetFileName(filename), fs, stream, OnHandleReady, OnError);
+        }
+        public IMegaRequest UploadStream(string targetNodeId, string name, long fileSize, Stream inputStream, Action<UploadHandle> OnHandleReady, Action<int> OnError)
+        {
+            if (fileSize == 0 || string.IsNullOrEmpty(targetNodeId) || inputStream == null || !inputStream.CanSeek)
+            {
+                if (OnError != null) { OnError(MegaApiError.EWRONG); }
+                return new EmptyRequest();
+            }
+
+            var req = new MRequestGetUploadUrl<MResponseGetUploadUrl>(User, fileSize);
+            UploadHandle handle = null;
             req.Success += (s, a) =>
             {
-                var handle = uploader.UploadFile(filename, targetNode, a.Url);
-                OnHandleReady(handle);
+                //Console.WriteLine("got url");
+                handle = MegaUploader.GetHandle(inputStream, name, fileSize, targetNodeId, a.Url);
+                if (OnHandleReady != null) { Util.StartThread(()=> OnHandleReady(handle), "transfer_handle_ready_handler"); }
+                uploader.StartTransfer(handle);
             };
-            req.Error += (s, e) => 
+            req.Error += (s, e) =>
             {
-                if (OnError != null) { OnError(e.Error); } 
+                if (OnError != null) { OnError(e.Error); }
             };
             transport.EnqueueRequest(req);
+            return req;
         }
-
-        public void DownloadFile(MegaNode node, string filename, Action<DownloadHandle> OnHandleReady, Action<int> OnError)
+        public MegaNode UploadFileSync(string targetNodeId, string filename)
+        {
+            Stream stream = null;
+            long fs = 0;
+            try
+            {
+                stream = File.Open(filename, FileMode.Open, FileAccess.Read, FileShare.Read);
+                fs = new FileInfo(filename).Length;
+            }
+            catch(Exception e)
+            {
+                throw new MegaApiException(MegaApiError.ESYSTEM, "Could not upload the file", e);
+            }
+            return UploadStreamSync(targetNodeId, filename, stream, fs);
+        }
+        public MegaNode UploadStreamSync(string targetNodeId, string name, Stream inputStream, long size)
+        {
+            int? error = null;
+            TransferHandle handle = null;
+            var waitFile = new ManualResetEvent(false);
+            UploadStream(targetNodeId, name,  size, inputStream,
+                (h) => 
+                {
+                    handle = h;
+                    h.TransferEnded += (s, e) => waitFile.Set();
+                },
+                (e) => error = e)
+                .ResetEvent.WaitOne();
+            waitFile.WaitOne();
+            if (handle == null || error != null || handle.Node == null || handle.Error != null)
+            {
+                throw new MegaApiException(handle.Error == null ? (int)error : (int)handle.Error, "Could not upload the file");
+            }
+            return handle.Node;
+        }
+        public IMegaRequest DownloadFile(MegaNode node, string filename, Action<DownloadHandle> OnHandleReady, Action<int> OnError)
         {
             var req = new MRequestGetDownloadUrl<MResponseGetDownloadUrl>(User, node.Id);
+            DownloadHandle handle = null;
             req.Success += (s, a) =>
             {
-                var handle = downloader.DownloadFile(filename, a.FileSize, a.Url, node);
-                OnHandleReady(handle);
+                handle = MegaDownloader.GetHandle(filename, a.FileSize, a.Url, node);
+                if (OnHandleReady != null) { Util.StartThread(() => OnHandleReady(handle), "transfer_handle_ready_handler"); }
+                downloader.StartTransfer(handle);
             };
             req.Error += (s, e) => { if (OnError != null) { OnError(e.Error); } };
             transport.EnqueueRequest(req);
+            return req;
         }
-        public MegaNode CreateFolder(string targetNode, string folderName)
+        public void DownloadFileSync(MegaNode node, string filename)
+        {
+            int? error = null;
+            TransferHandle handle = null;
+            var waitFile = new ManualResetEvent(false);
+            DownloadFile(node, filename,
+                (h) =>
+                {
+                    handle = h;
+                    h.TransferEnded += (s, e) => waitFile.Set();
+                },
+                (e) => error = e)
+                .ResetEvent.WaitOne();
+            waitFile.WaitOne();
+            if (handle == null || error != null || handle.Node == null || handle.Error != null)
+            {
+                throw new MegaApiException(handle.Error == null ? (int)error : (int)handle.Error, "Could not upload the file");
+            }
+        }
+        public IMegaRequest CreateFolder(string targetNodeId, string folderName, Action<MegaNode> OnSuccess, Action<int> OnError)
+        {
+            if (string.IsNullOrEmpty(targetNodeId) || string.IsNullOrEmpty(folderName))
+            {
+                if (OnError != null) { OnError(MegaApiError.EWRONG); }
+                return new EmptyRequest();
+            }
+            var req = new MRequestCreateFolder<MResponseCreateFolder>(User, folderName, targetNodeId);
+            req.Success += (s, e) => { if (OnSuccess != null) { OnSuccess(e.Created.First());} };
+            req.Error += (s, e) => { if (OnError != null) { OnError(e.Error); } };
+            transport.EnqueueRequest(req);
+            return req;
+        }
+        public MegaNode CreateFolderSync(string targetNode, string folderName)
         {
             MegaNode folder = null;
-            var mre = new ManualResetEvent(false);
-            var r = CreateFolder(targetNode, folderName, (n) => folder = n, (i) => {});
-            r.ResetEvent.WaitOne();
+            int? error = null;
+            CreateFolder(targetNode, folderName, (n) => folder = n, (e) => error=e).ResetEvent.WaitOne();
+            if (folder == null || error != null)
+            {
+                throw new MegaApiException((int)error, "Could not create the folder");
+            }
             return folder;
         }
-
-        public MegaRequest CreateFolder(string targetNode, string folderName, Action<MegaNode> OnSuccess, Action<int> OnError)
+        public IMegaRequest RemoveNode(string targetNodeId, Action OnSuccess, Action<int> OnError)
         {
-            var req = new MRequestCreateFolder<MResponseCreateFolder>(User, folderName, targetNode);
-            req.Success += (s, e) => { OnSuccess(e.Created.First()); };
-            req.Error += (s, e) => { if (OnError != null) { OnError(e.Error); } };
-            transport.EnqueueRequest(req);
-            return req;
-        }
-
-        public MegaRequest RemoveNode(MegaNode targetNode, Action OnSuccess, Action<int> OnError)
-        {
-            return RemoveNode(targetNode.Id, OnSuccess, OnError);
-        }
-
-        public MegaRequest RemoveNode(string targetNodeId, Action OnSuccess, Action<int> OnError)
-        {
+            if (string.IsNullOrEmpty(targetNodeId))
+            {
+                if (OnError != null) { OnError(MegaApiError.EWRONG); }
+                return new EmptyRequest();
+            }
             var req = new MRequestRemoveNode<MResponseRemoveNode>(User, targetNodeId);
-            req.Success += (s, e) => { OnSuccess(); };
+            req.Success += (s, e) => { if (OnSuccess != null) { OnSuccess(); } };
             req.Error += (s, e) => { if (OnError != null) { OnError(e.Error); } };
             transport.EnqueueRequest(req);
             return req;
         }
-
-        public MegaRequest MoveNode(string nodeId, string targetNodeId, Action OnSuccess, Action<int> OnError)
+        public void RemoveNodeSync(string targetNodeId)
         {
+            int? error = null;
+            RemoveNode(targetNodeId, null, (e) => error = e).ResetEvent.WaitOne();
+            if (error != null)
+            {
+                throw new MegaApiException((int)error, "Could not remove the node");
+            }
+        }
+        public IMegaRequest MoveNode(string nodeId, string targetNodeId, Action OnSuccess, Action<int> OnError)
+        {
+            if (string.IsNullOrEmpty(targetNodeId) || string.IsNullOrEmpty(nodeId))
+            {
+                if (OnError != null) { OnError(MegaApiError.EWRONG); }
+                return new EmptyRequest();
+            }
             var req = new MRequestMoveNode<MResponseMoveNode>(User, nodeId, targetNodeId);
-            req.Success += (s, e) => { OnSuccess(); };
+            req.Success += (s, e) => { if (OnSuccess != null) { OnSuccess(); } };
             req.Error += (s, e) => { if (OnError != null) { OnError(e.Error); } };
             transport.EnqueueRequest(req);
             return req;
         }
-
-        public MegaRequest UpdateNodeAttr(MegaNode node, Action OnSuccess, Action<int> OnError)
+        public void MoveNodeSync(string nodeId, string targetNodeId)
         {
+            int? error = null;
+            MoveNode(nodeId, targetNodeId, null, (e) => error = e).ResetEvent.WaitOne();
+            if (error != null)
+            {
+                throw new MegaApiException((int)error, "Could not move the node");
+            }
+        }
+        public IMegaRequest UpdateNodeAttr(MegaNode node, Action OnSuccess, Action<int> OnError)
+        {
+            if (node==null || node.Attributes == null)
+            {
+                if (OnError != null) { OnError(MegaApiError.EWRONG); }
+                return new EmptyRequest();
+            }
             var req = new MRequestUpdateAttributes<MResponseUpdateAttributes>(User, node);
-            req.Success += (s, e) => { OnSuccess(); };
+            req.Success += (s, e) => { if (OnSuccess != null) { OnSuccess(); } };
             req.Error += (s, e) => { if (OnError != null) { OnError(e.Error); } };
             transport.EnqueueRequest(req);
             return req;
         }
-        
+        public void UpdateNodeAttrSync(MegaNode node)
+        {
+            int? error = null;
+            UpdateNodeAttr(node, null, (e) => error = e).ResetEvent.WaitOne();
+            if (error != null)
+            {
+                throw new MegaApiException((int)error, "Could not update the node");
+            }
+        }
+        #region storing the user credentials
         public static MegaUser LoadAccount(string filePath)
         {
             MegaUser u = null;
@@ -249,10 +407,11 @@ namespace MegaApi
 
             File.WriteAllBytes(filePath, encrypted);
         }
-
         private static readonly byte[] keyStoreSeed = new byte[]{
             0xFD, 0xDF, 0xF7, 0xA2, 0x06, 0x14, 0x47, 0x20, 
             0xAE, 0x9E, 0x9A, 0x49, 0x6B, 0x8E, 0x0A, 0x13
         };
+
+        #endregion
     }
 }
