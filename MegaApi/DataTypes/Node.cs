@@ -65,7 +65,7 @@ namespace MegaApi
         [OnDeserialized]
         internal void OnDeserialized(StreamingContext context)
         {
-            if (encryptedAttributes == null)
+            if (encryptedAttributes == null || encryptedAttributes.Length < 1)
             {
                 Attributes = new NodeAttributes();
                 switch (Type)
@@ -127,6 +127,12 @@ namespace MegaApi
             Array.Copy(newKey, aes_key, 16);
 
             node.encryptedAttributes = Crypto.EncryptCbc(aes_key, pAttr);
+        }
+
+        public override string ToString()
+        {
+            string name = string.Empty;
+            return String.Format("{0}: {1}", Id, Attributes.Name);
         }
 
     }

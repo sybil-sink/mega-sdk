@@ -5,8 +5,8 @@ using MegaApi.Cryptography;
 using Newtonsoft.Json.Linq;
 using System.Security.Cryptography;
 using System.Collections.Generic;
-using MegaApi.Utility;
 using System.Threading;
+using MegaApi.Utility;
 
 namespace MegaApi.Comms.Requests
 {
@@ -21,7 +21,7 @@ namespace MegaApi.Comms.Requests
     internal abstract class MegaRequest : IMegaRequest
     {
         public ManualResetEvent ResetEvent { get; set; }
-        public virtual bool IsTrackig { get; set; }
+        public virtual bool IsTracking { get; set; }
         public int Id { get; protected set; }
         public string Sid { get; set; }
         public string NodeSid { get; protected set; }
@@ -90,14 +90,14 @@ namespace MegaApi.Comms.Requests
 
     internal abstract class TrackingRequest<T> : MegaRequest<T>, ITrackingRequest where T : MegaResponse
     {
-        public override bool IsTrackig { get; set; }
+        public override bool IsTracking { get; set; }
         [DataMember]
         [JsonProperty("i")]
         public string TrackingId { get; set; }
 
         public TrackingRequest(MegaUser user) : base (user)
         {
-            IsTrackig = true;
+            IsTracking = true;
             TrackingId = Util.RandomString(10);
         }
     }

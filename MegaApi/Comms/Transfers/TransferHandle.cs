@@ -183,7 +183,7 @@ namespace MegaApi
         private void PrepareChunks(long filesize)
         {
             Size = filesize;
-            var p = 0;
+            long p = 0;
             long pp = 0;
             for (var i = 1; i <= 8 && p < Size - i * 131072; i++)
             {

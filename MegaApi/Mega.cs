@@ -37,7 +37,7 @@ namespace MegaApi
         MegaDownloader downloader;
         MegaUploader uploader;
         Transport transport;
-        
+
         #region static initialization
         public static void Init(MegaUser user, Action<Mega> OnSuccess, Action<int> OnError)
         {
@@ -61,8 +61,8 @@ namespace MegaApi
 
         private static IMegaRequest ThreadInit(MegaUser user, Action<Mega> OnSuccess, Action<int> OnError)
         {
-            var trpt = new Transport();
-            var mega = new Mega(trpt);
+            var initTransport = new Transport();
+            var mega = new Mega(initTransport);
 
             // mandatory anonymous registration
             if (user == null || (user.Email == null && user.Id == null))
@@ -72,7 +72,7 @@ namespace MegaApi
                 int? error = null;
                 req.Success += (s, args) => user.Id = args.UserId;
                 req.Error += (s, e) => error = e.Error;
-                trpt.EnqueueRequest(req);
+                initTransport.EnqueueRequest(req);
                 req.ResetEvent.WaitOne();
                 if (error != null)
                 {
@@ -105,12 +105,12 @@ namespace MegaApi
                     OnError(e.Error);
                     sidRequest.ResetEvent.Set();
                 };
-                trpt.EnqueueRequest(getUserRequest);
+                initTransport.EnqueueRequest(getUserRequest);
                 getUserRequest.ResetEvent.WaitOne();
             };
             sidRequest.Error += (s, a) => OnError(a.Error);
 
-            trpt.EnqueueRequest(sidRequest);
+            initTransport.EnqueueRequest(sidRequest);
             return sidRequest;
         }
         #endregion
@@ -271,6 +271,79 @@ namespace MegaApi
             transport.EnqueueRequest(req);
             return req;
         }
+
+        void CreateFolders(
+            MegaNode targetNode, 
+            List<MegaNode> existingNodes, 
+            string[] folders,
+            Action<MegaNode> OnSuccess, 
+            Action<int> OnError)
+        {
+            if(folders.Length == 0)
+            {
+                OnSuccess(targetNode);
+                return;
+            }
+            MegaNode existing;
+            lock (existingNodes)
+            {
+                existing = existingNodes.Where(n => n.ParentId == targetNode.Id && n.Attributes.Name == folders[0]).FirstOrDefault();
+            }
+            if (existing != null)
+            {
+                CreateFolders(
+                        existing,
+                        existingNodes,
+                        folders.Skip(1).ToArray(),
+                        OnSuccess,
+                        OnError);
+            }
+            else
+            {
+                CreateFolder(targetNode.Id, folders[0],
+                    (n) => 
+                        {
+                            lock (existingNodes) { existingNodes.Add(n); }
+                            CreateFolders(
+                            n,
+                            existingNodes,
+                            folders.Skip(1).ToArray(),
+                            OnSuccess,
+                            OnError);
+                        },
+                    (i) => OnError(i));
+            }
+        }
+        public IMegaRequest CreateFolder(MegaNode targetNode, List<MegaNode> existingNodes, string folderPath, char separator, Action<MegaNode> OnSuccess, Action<int> OnError)
+        {
+            var result = new EmptyRequest();
+            if (string.IsNullOrEmpty(folderPath))
+            {
+                OnSuccess(targetNode);
+                return result;
+            }
+            result.ResetEvent.Reset();
+            var folders = folderPath.Split(new char[]{separator}, StringSplitOptions.RemoveEmptyEntries);
+            CreateFolders(
+                targetNode, 
+                existingNodes,
+                folders, 
+                (node)=>{OnSuccess(node); result.ResetEvent.Set();},
+                (i) => { OnError(i); result.ResetEvent.Set(); });
+            return result;
+        }
+        public MegaNode CreateFolderSync(MegaNode target, List<MegaNode> nodes, string folder, char separator)
+        {
+            MegaNode result = null;
+            int? errno = null;
+            CreateFolder(target, nodes, folder, separator, (n) => result = n, (e) => errno = e).ResetEvent.WaitOne();
+            if (result == null || errno != null)
+            {
+                throw new MegaApiException((int)errno, String.Format("Could not create the folder {0}",folder));
+            }
+            return result;
+        }
+
         public MegaNode CreateFolderSync(string targetNode, string folderName)
         {
             MegaNode folder = null;
@@ -413,5 +486,7 @@ namespace MegaApi
         };
 
         #endregion
+
+        
     }
 }

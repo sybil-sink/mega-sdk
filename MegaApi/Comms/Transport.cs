@@ -9,6 +9,7 @@ using Newtonsoft.Json;
 using MegaApi.Comms.Requests;
 using System.Timers;
 using MegaApi.Utility;
+using System.Threading;
 
 namespace MegaApi.Comms
 {
@@ -37,7 +38,7 @@ namespace MegaApi.Comms
                     }
                 }
             }, "mega_api_request_start");
-        
+
         }
         private void ProcessAgain(MegaRequest request, bool incrRetries = true)
         {
@@ -105,6 +106,11 @@ namespace MegaApi.Comms
         }
         private void ProcessRequest(MegaRequest req)
         {
+            if (req.retries > 1)
+            {
+                Thread.Sleep((int)(Math.Pow(2, req.retries) * 100));
+                // 0,400,800,1600,3200ms etc
+            }
             var wc = new WebClient();
             wc.Proxy = Proxy;
             wc.UploadStringCompleted += (s, e) =>
@@ -151,7 +157,8 @@ namespace MegaApi.Comms
             };
             try
             {
-                if (req.IsTrackig) { tracking.Add(((ITrackingRequest)req).TrackingId); }
+                if (req.IsTracking) { tracking.Add(((ITrackingRequest)req).TrackingId); }
+
                 wc.UploadStringAsync(BuildCsUri(req), GetData(req));
             }
             catch (WebException) { ProcessAgain(req, false); }

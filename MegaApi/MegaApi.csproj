@@ -57,6 +57,7 @@
     <Compile Include="Comms\Converters\SessionConverter.cs" />
     <Compile Include="Comms\Converters\StringConverter.cs" />
     <Compile Include="Comms\Converters\TimeConverter.cs" />
+    <Compile Include="Comms\GoogleAnalytics.cs" />
     <Compile Include="Comms\PollingTransport.cs" />
     <Compile Include="Comms\Transfers\TransferController.cs" />
     <Compile Include="Comms\Transport.cs" />
@@ -86,9 +87,12 @@
     <Compile Include="Comms\Transfers\MegaDownloader.cs" />
     <Compile Include="Comms\Transfers\MegaUploader.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Util\Converter.cs" />
-    <Compile Include="Util\UnixTime.cs" />
-    <Compile Include="Util\Util.cs" />
+    <Compile Include="Utility\Converter.cs" />
+    <Compile Include="Utility\CustomWebClient.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="Utility\UnixTime.cs" />
+    <Compile Include="Utility\Util.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

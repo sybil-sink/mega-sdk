@@ -8,6 +8,7 @@ using System.Net;
 using System.Timers;
 using Newtonsoft.Json;
 using MegaApi.Comms.Converters;
+using System.Threading;
 
 namespace MegaApi.Comms
 {
@@ -97,24 +98,41 @@ namespace MegaApi.Comms
             return new Uri(url);
         }
 
+        int waitRetries = 0;
+
         private void StartWait(MegaRequest cause, string handle, string waitUrl)
         {
+            if (waitRetries > 1)
+            {
+                Thread.Sleep((int)(Math.Pow(2, waitRetries) * 100));
+                // 0,400,800,1600,3200ms etc
+            }
             ScWc = new WebClient();
             ScWc.DownloadStringCompleted += (s, e) =>
             {
                 if (e.Cancelled) { return; }
                 // todo kinds of errors
-                if (e.Error != null) { StartWait(cause, handle, waitUrl); return; }
+                if (e.Error != null)
+                {
+                    waitRetries++;
+                    StartWait(cause, handle, waitUrl); return;
+                }
+                waitRetries = 0;
                 StartPoll(cause, handle);
             };
-            try { ScWc.DownloadStringAsync(new Uri(waitUrl)); }
-            catch (WebException) 
+            try
             {
+                ScWc.DownloadStringAsync(new Uri(waitUrl));
+
+            }
+            catch (WebException)
+            {
+                waitRetries++;
                 StartWait(cause, handle, waitUrl);
             }
 
         }
 
-        
+
     }
 }
